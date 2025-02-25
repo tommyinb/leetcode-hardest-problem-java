@@ -2,9 +2,5 @@
   "editor.formatOnSave": true,
   "editor.formatOnType": true,
   "editor.defaultFormatter": "redhat.java",
-  "cSpell.words": [
-    "evalints",
-    "evalvars",
-    "nexts"
-  ]
+  "editor.insertSpaces": true,
 }

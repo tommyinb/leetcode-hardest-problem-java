@@ -1,377 +1,138 @@
 import java.util.*;
-import java.util.stream.*;
+import java.util.stream.Collectors;
 
 public class Solution {
     public boolean canReachCorner(int xCorner, int yCorner, int[][] circles) {
-        Question question = new Question(
+        var question = new Question(
                 new Area(xCorner, yCorner),
                 Arrays.stream(circles)
                         .map(c -> new Circle(c[0], c[1], c[2]))
-                        .toArray(Circle[]::new));
+                        .collect(Collectors.toList()));
 
-        return !covering(question)
-                && explore(question);
+        return explore(question) == null;
     }
 
-    private static boolean covering(Question question) {
-        for (var c : question.circles) {
-            if ((long) c.x * c.x + (long) c.y * c.y <= (long) c.radius * c.radius) {
-                return true;
+    public static Path explore(Question question) {
+        var startPaths = new ArrayList<Path>();
+        var endPaths = new ArrayList<Path>();
+        var currentCircles = new LinkedList<Circle>();
+
+        for (var circle : question.circles) {
+            if (pointCovering(0, 0, circle) ||
+                    pointCovering(question.area.width, question.area.height, circle)) {
+                return new Path(new ArrayList<>(Arrays.asList(circle)));
             }
 
-            if (((long) c.x - question.area.width) * ((long) c.x - question.area.width)
-                    + ((long) c.y - question.area.height)
-                            * ((long) c.y - question.area.height) <= (long) c.radius * c.radius) {
-                return true;
+            var start = intersectingY(circle, 0, question.area) ||
+                    intersectingX(circle, question.area.width, question.area);
+            if (start) {
+                startPaths.add(new Path(new ArrayList<>(Arrays.asList(circle))));
             }
+
+            var end = intersectingY(circle, question.area.height, question.area) ||
+                    intersectingX(circle, 0, question.area);
+            if (end) {
+                endPaths.add(new Path(new ArrayList<>(Arrays.asList(circle))));
+            }
+
+            if (start && end) {
+                return new Path(Arrays.asList(circle));
+            }
+
+            if (!start && !end) {
+                currentCircles.add(circle);
+            }
+        }
+
+        for (var startPath : startPaths) {
+            var startCircle = startPath.circles.get(startPath.circles.size() - 1);
+            for (var endPath : endPaths) {
+                var endCircle = endPath.circles.get(endPath.circles.size() - 1);
+                if (intersectingCircle(startCircle, endCircle, question.area)) {
+                    return new Path(Arrays.asList(startCircle, endCircle));
+                }
+            }
+        }
+
+        Circle currentCircle;
+        while ((currentCircle = currentCircles.poll()) != null) {
+            Path targetPath = null;
+
+            for (Path startPath : startPaths) {
+                var pathCircle = startPath.circles.get(startPath.circles.size() - 1);
+                if (intersectingCircle(currentCircle, pathCircle, question.area)) {
+                    startPath.circles.add(currentCircle);
+                    targetPath = startPath;
+                }
+            }
+
+            for (Path endPath : endPaths) {
+                var pathCircle = endPath.circles.get(endPath.circles.size() - 1);
+                if (intersectingCircle(currentCircle, pathCircle, question.area)) {
+                    if (targetPath != null) {
+                        var output = new ArrayList<>(targetPath.circles);
+
+                        var end = new ArrayList<>(endPath.circles);
+                        Collections.reverse(end);
+
+                        output.addAll(end);
+                        return new Path(output);
+                    }
+
+                    endPath.circles.add(currentCircle);
+                }
+            }
+        }
+
+        return null;
+    }
+
+    public static boolean intersectingCircle(Circle circle1, Circle circle2, Area area) {
+        long dx = circle1.x - circle2.x;
+        long dy = circle1.y - circle2.y;
+        long radiusSum = circle1.radius + circle2.radius;
+
+        if (dx * dx + dy * dy > radiusSum * radiusSum) {
+            return false;
+        }
+
+        double midpointX = ((long) circle1.x * circle2.radius + (long) circle2.x * circle1.radius) / (double) radiusSum;
+        double midpointY = ((long) circle1.y * circle2.radius + (long) circle2.y * circle1.radius) / (double) radiusSum;
+
+        return midpointX >= 0 && midpointX <= area.width &&
+                midpointY >= 0 && midpointY <= area.height;
+    }
+
+    public static boolean intersectingX(Circle circle, int x, Area area) {
+        int dx = circle.x - x;
+        if (Math.abs(dx) <= circle.radius) {
+            double xy = Math.sqrt((long) circle.radius * circle.radius - (long) dx * dx);
+            double y1 = circle.y - xy;
+            double y2 = circle.y + xy;
+
+            return (0 < y1 && y1 < area.height) || (0 < y2 && y2 < area.height);
         }
 
         return false;
     }
 
-    private static boolean explore(Question question) {
-        var steps = new ArrayList<>();
-        IStep currentStep = new RightLineStep(0);
+    public static boolean intersectingY(Circle circle, int y, Area area) {
+        int dy = circle.y - y;
+        if (Math.abs(dy) <= circle.radius) {
+            double yx = Math.sqrt((long) circle.radius * circle.radius - (long) dy * dy);
+            double x1 = circle.x - yx;
+            double x2 = circle.x + yx;
 
-        for (int i = 0; i < question.circles.length * 3 + 50; i++) {
-            var nextStep = moveStep(currentStep, question);
-
-            if (nextStep == null)
-                return false;
-            if (nextStep instanceof CornerEndStep)
-                return true;
-            if (nextStep instanceof LeftEndStep
-                    || nextStep instanceof BottomEndStep)
-                return false;
-
-            steps.add(currentStep);
-            currentStep = nextStep;
+            return (0 < x1 && x1 < area.width) || (0 < x2 && x2 < area.width);
         }
 
         return false;
     }
 
-    private static IStep moveStep(IStep currentStep, Question question) {
-        if (currentStep instanceof RightLineStep) {
-            return moveRight((RightLineStep) currentStep, question);
-        } else if (currentStep instanceof DownLineStep) {
-            return moveDown((DownLineStep) currentStep, question);
-        } else if (currentStep instanceof ArcStep) {
-            return moveArc((ArcStep) currentStep, question);
-        } else {
-            throw new IllegalStateException();
-        }
-    }
-
-    private static IStep moveRight(RightLineStep currentStep, Question question) {
-        ArcStep arcStep = Arrays.stream(question.circles)
-                .flatMap(circle -> {
-                    long delta = (long) circle.radius * circle.radius - (long) circle.y * circle.y;
-                    if (delta < 0)
-                        return Stream.empty();
-
-                    double dx = Math.sqrt(delta);
-                    double[] xs = { circle.x - dx, circle.x + dx };
-
-                    return Arrays.stream(xs).mapToObj(x -> new ArcStep(x, 0, circle));
-                })
-                .filter(nextStep -> nextStep.x > currentStep.x)
-                .filter(nextStep -> nextStep.x < question.area.width)
-                .sorted(Comparator.comparingDouble(a -> a.x))
-                .findFirst()
-                .orElse(null);
-
-        if (arcStep != null) {
-            return arcStep;
-        }
-
-        return new DownLineStep(0);
-    }
-
-    private static IStep moveDown(DownLineStep currentStep, Question question) {
-        var arcStep = Arrays.stream(question.circles)
-                .flatMap(circle -> {
-                    long delta = (long) circle.radius * circle.radius
-                            - (long) (question.area.width - circle.x) * (question.area.width - circle.x);
-
-                    if (delta < 0)
-                        return Stream.empty();
-
-                    double dy = Math.sqrt(delta);
-                    double[] ys = { circle.y - dy, circle.y + dy };
-
-                    return Arrays.stream(ys).mapToObj(y -> new ArcStep(question.area.width, y, circle));
-                })
-                .filter(nextStep -> nextStep.y > currentStep.y)
-                .filter(nextStep -> nextStep.y < question.area.height)
-                .sorted(Comparator.comparingDouble(nextStep -> nextStep.y))
-                .findFirst();
-
-        if (arcStep.isPresent()) {
-            return arcStep.get();
-        }
-
-        return new CornerEndStep();
-    }
-
-    private static IStep moveArc(ArcStep currentStep, Question question) {
-        double currentAngle = Math.atan2(currentStep.y - currentStep.circle.y, currentStep.x - currentStep.circle.x);
-        while (currentAngle >= Math.PI * 2) {
-            currentAngle -= Math.PI * 2;
-        }
-        while (currentAngle < 0) {
-            currentAngle += Math.PI * 2;
-        }
-
-        final var fromAngle = currentAngle;
-
-        var nexts = Stream.of(
-                getRightNexts(currentStep, question),
-                getDownNexts(currentStep, question),
-                getLeftNexts(currentStep, question),
-                getBottomNexts(currentStep, question),
-                getArcNexts(currentStep, question))
-                .reduce(Stream::concat)
-                .orElse(Stream.empty())
-                .map(next -> {
-                    double angle = next.angle;
-                    while (angle >= Math.PI * 2) {
-                        angle -= Math.PI * 2;
-                    }
-                    while (angle < 0) {
-                        angle += Math.PI * 2;
-                    }
-
-                    angle -= fromAngle;
-                    while (angle >= Math.PI * 2) {
-                        angle -= Math.PI * 2;
-                    }
-                    while (angle < -0.000001) {
-                        angle += Math.PI * 2;
-                    }
-
-                    angle += new Random().nextDouble() * 0.000001;
-
-                    return new ArcNext(angle, next.step);
-                })
-                .sorted(Comparator.comparingDouble(next -> next.angle))
-                .map(next -> next.step)
-                .toArray(IStep[]::new);
-
-        if (nexts.length <= 0) {
-            return null;
-        }
-
-        return nexts[nexts.length - 1];
-    }
-
-    private static Stream<ArcNext> getRightNexts(ArcStep currentStep, Question question) {
-        return getXIntersects(currentStep, 0, question)
-                .map(xIntersect -> new ArcNext(xIntersect.angle, new RightLineStep(xIntersect.x)));
-    }
-
-    private static Stream<ArcXIntersect> getXIntersects(ArcStep currentStep, int y, Question question) {
-        long delta = (long) currentStep.circle.radius * currentStep.circle.radius
-                - (long) (y - currentStep.circle.y) * (y - currentStep.circle.y);
-
-        if (delta < 0) {
-            return Stream.empty();
-        }
-
-        double dx = Math.sqrt(delta);
-        double[] xs = { currentStep.circle.x + dx, currentStep.circle.x - dx };
-
-        return Arrays.stream(xs)
-                .filter(x -> x >= 0)
-                .filter(x -> x <= question.area.width)
-                .mapToObj(x -> new ArcXIntersect(x, Math.atan2(y - currentStep.circle.y, x - currentStep.circle.x)));
-    }
-
-    private static Stream<ArcNext> getDownNexts(ArcStep currentStep, Question question) {
-        return getYIntersects(currentStep, question.area.width, question)
-                .map(yIntersect -> new ArcNext(yIntersect.angle, new DownLineStep(yIntersect.y)));
-    }
-
-    private static Stream<ArcYIntersect> getYIntersects(ArcStep currentStep, int x, Question question) {
-        long delta = (long) currentStep.circle.radius * currentStep.circle.radius
-                - (long) (x - currentStep.circle.x) * (x - currentStep.circle.x);
-
-        if (delta < 0) {
-            return Stream.empty();
-        }
-
-        double dy = Math.sqrt(delta);
-        double[] ys = { currentStep.circle.y + dy, currentStep.circle.y - dy };
-
-        return Arrays.stream(ys)
-                .filter(y -> y >= 0)
-                .filter(y -> y <= question.area.height)
-                .mapToObj(y -> new ArcYIntersect(y, Math.atan2(y - currentStep.circle.y, x - currentStep.circle.x)));
-    }
-
-    private static Stream<ArcNext> getLeftNexts(ArcStep currentStep, Question question) {
-        return getYIntersects(currentStep, 0, question)
-                .map(intersect -> new ArcNext(intersect.angle, new LeftEndStep(intersect.y)));
-    }
-
-    private static Stream<ArcNext> getBottomNexts(ArcStep currentStep, Question question) {
-        return getXIntersects(currentStep, question.area.height, question)
-                .map(intersect -> new ArcNext(intersect.angle, new BottomEndStep(intersect.x)));
-    }
-
-    private static Stream<ArcNext> getArcNexts(ArcStep currentStep, Question question) {
-        Circle[] circles = Arrays.stream(question.circles)
-                .filter(circle -> !circle.equals(currentStep.circle))
-                .toArray(Circle[]::new);
-
-        return Arrays.stream(circles)
-                .flatMap(circle -> getCircleIntersects(currentStep.circle, circle)
-                        .filter(intersect -> intersect.x > 0 && intersect.x < question.area.width
-                                && intersect.y > 0 && intersect.y < question.area.height)
-                        .map(intersect -> new ArcNext(
-                                Math.atan2(intersect.y - currentStep.circle.y, intersect.x - currentStep.circle.x),
-                                new ArcStep(intersect.x, intersect.y, circle))));
-    }
-
-    private static Stream<CircleIntersect> getCircleIntersects(Circle a, Circle b) {
-        long dx = b.x - a.x;
-        long dy = b.y - a.y;
-        var d = Math.sqrt(dx * dx + dy * dy);
-
-        if (d > a.radius + b.radius || d < Math.abs(a.radius - b.radius)) {
-            return Stream.empty();
-        }
-
-        var a2 = ((long) a.radius * a.radius - (long) b.radius * b.radius + d * d) / (2 * d);
-        var h = Math.sqrt((long) a.radius * a.radius - a2 * a2);
-
-        var xm = a.x + a2 * dx / d;
-        var ym = a.y + a2 * dy / d;
-
-        return Stream.of(
-                new CircleIntersect(xm + h * dy / d, ym - h * dx / d),
-                new CircleIntersect(xm - h * dy / d, ym + h * dx / d));
-    }
-}
-
-class Question {
-    Area area;
-    Circle[] circles;
-
-    Question(Area area, Circle[] circles) {
-        this.area = area;
-        this.circles = circles;
-    }
-}
-
-class Area {
-    int width;
-    int height;
-
-    Area(int width, int height) {
-        this.width = width;
-        this.height = height;
-    }
-}
-
-class Circle {
-    int x;
-    int y;
-    int radius;
-
-    Circle(int x, int y, int radius) {
-        this.x = x;
-        this.y = y;
-        this.radius = radius;
-    }
-}
-
-interface IStep {
-}
-
-class RightLineStep implements IStep {
-    double x;
-
-    RightLineStep(double x) {
-        this.x = x;
-    }
-}
-
-class DownLineStep implements IStep {
-    double y;
-
-    DownLineStep(double y) {
-        this.y = y;
-    }
-}
-
-class ArcStep implements IStep {
-    double x;
-    double y;
-    Circle circle;
-
-    ArcStep(double x, double y, Circle circle) {
-        this.x = x;
-        this.y = y;
-        this.circle = circle;
-    }
-}
-
-class CornerEndStep implements IStep {
-}
-
-class LeftEndStep implements IStep {
-    double y;
-
-    LeftEndStep(double y) {
-        this.y = y;
-    }
-}
-
-class BottomEndStep implements IStep {
-    double x;
-
-    BottomEndStep(double x) {
-        this.x = x;
-    }
-}
-
-class ArcNext {
-    double angle;
-    IStep step;
-
-    ArcNext(double angle, IStep step) {
-        this.angle = angle;
-        this.step = step;
-    }
-}
-
-class ArcXIntersect {
-    double x;
-    double angle;
-
-    ArcXIntersect(double x, double angle) {
-        this.x = x;
-        this.angle = angle;
-    }
-}
-
-class ArcYIntersect {
-    double y;
-    double angle;
-
-    ArcYIntersect(double y, double angle) {
-        this.y = y;
-        this.angle = angle;
-    }
-}
-
-class CircleIntersect {
-    double x;
-    double y;
-
-    CircleIntersect(double x, double y) {
-        this.x = x;
-        this.y = y;
+    public static boolean pointCovering(int x, int y, Circle circle) {
+        long dx = x - circle.x;
+        long dy = y - circle.y;
+
+        return dx * dx + dy * dy <= (long) circle.radius * circle.radius;
     }
 }
